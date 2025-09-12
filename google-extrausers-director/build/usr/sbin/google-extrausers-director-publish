@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+SRC="/var/lib/extrausers"
+PUB="/srv/idcache"          # web/rsync export dir
+TMP="$(mktemp -p "$PUB" extrausers.XXXXXX)"
+
+mkdir -p "$PUB"
+# Pack with preserved perms/mtimes; numeric owners so extraction doesn’t remap names
+tar --numeric-owner --xattrs --acls -C "$SRC" -czf "$TMP" passwd group shadow
+mv -f "$TMP" "$PUB/extrausers.tgz"
+
+# Create checksum (sha256)
+( cd "$PUB" && sha256sum extrausers.tgz > extrausers.tgz.sha256 )
+chmod 0644 "$PUB/extrausers.tgz" "$PUB/extrausers.tgz.sha256"

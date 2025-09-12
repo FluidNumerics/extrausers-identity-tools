@@ -1,0 +1,21 @@
+# Required
+SA_KEY=/etc/google/sa.json
+IMPERSONATE=admin@example.org
+
+# Choose one:
+CUSTOMER=my_customer
+# DOMAIN=example.org
+
+# Optional (defaults shown)
+OUTDIR=/var/lib/extrausers
+DB=/var/lib/googleworkspace-idcache/users.db
+DEFAULT_SHELL=/bin/bash
+HOME_TEMPLATE=/home/{username}
+RPS=5
+MAX_RETRIES=5
+# Set VERBOSE=1 to enable --verbose
+# VERBOSE=1
+
+
+# Where to publish for agents (served via HTTPS or rsync)
+PUBLISH_DIR=/srv/idcache
