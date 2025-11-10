@@ -6,9 +6,10 @@ import re
 import time
 from typing import Dict, List, Optional, Set, Tuple
 
-import google.auth
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from google.cloud import secretmanager
 
 SCOPE_USER_RW = "https://www.googleapis.com/auth/admin.directory.user"
 
@@ -44,9 +45,18 @@ def next_free(start: int, used: Set[int]) -> int:
     used.add(n)
     return n
 
+def load_sa_credentials_from_secret(secret_resource_id: str, version: str = "latest"):
+    # secret_resource_id like: projects/123/secrets/workspace-dwd-sa-key
+    client = secretmanager.SecretManagerServiceClient()
+    name = f"{secret_resource_id}/versions/{version}"
+    payload = client.access_secret_version(request={"name": name}).payload.data
+    info = json.loads(payload.decode("utf-8"))
+    creds = service_account.Credentials.from_service_account_info(info, scopes=[SCOPE_USER_RW])
+    return creds
+
 def get_directory_service(creds, subject: str):
     # Domain-wide delegation: impersonate admin subject
-    delegated = creds.with_subject(subject)
+    delegated = creds.with_subject(subject)    
     return build("admin", "directory_v1", credentials=delegated, cache_discovery=False)
 
 # ----------------- core logic -----------------
@@ -67,8 +77,7 @@ def populate_posix_accounts(
     list_kwargs = dict(
         projection="full",
         maxResults=200,
-        orderBy="email",
-        fields="users(id,primaryEmail,name/fullName,suspended,deleted,posixAccounts,etag),nextPageToken",
+        orderBy="email"
     )
     if domain:
         list_kwargs["domain"] = domain
@@ -190,12 +199,11 @@ def run(event=None, context=None):
     strip_suffix = os.environ.get("STRIP_SUFFIX") or None
     rps = float(os.environ.get("RPS", "5"))
     max_retries = int(os.environ.get("MAX_RETRIES", "5"))
-
     secret_resource_id = os.environ["SECRET_RESOURCE_ID"]
     secret_version = os.environ.get("SECRET_VERSION", "latest")
 
     # Load DWD service account key from Secret Manager
-    creds, _ = google.auth.default(scopes=[SCOPE_USER_RW])
+    creds = load_sa_credentials_from_secret(secret_resource_id, secret_version)
     svc = get_directory_service(creds, subject=imp)
 
     result = populate_posix_accounts(

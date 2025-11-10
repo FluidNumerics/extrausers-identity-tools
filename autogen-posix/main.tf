@@ -30,6 +30,7 @@ locals {
     "secretmanager.googleapis.com",
     "pubsub.googleapis.com",
     "cloudscheduler.googleapis.com",
+    "iamcredentials.googleapis.com"
   ]
 }
 
@@ -41,10 +42,32 @@ resource "google_project_service" "services" {
 }
 
 # ----------------------------
+# "Admin" Service Account with DWD
+# ----------------------------
+module "admin_sa" {
+  source="./admin_sa"
+}
+
+# ----------------------------
+# Secret Manager (DWD service account key JSON)
+# ----------------------------
+resource "google_secret_manager_secret" "dwd_sa_key" {
+  secret_id  = "workspace-dwd-sa-key"
+  replication { 
+    auto {}
+  }
+}
+
+resource "google_secret_manager_secret_version" "dwd_sa_key_v" {
+  secret      = google_secret_manager_secret.dwd_sa_key.id
+  secret_data = module.admin_sa.service_account_key_json
+}
+
+# ----------------------------
 # Runtime service account
 # ----------------------------
 resource "google_service_account" "fn" {
-  account_id   = "posix-populator-fn"
+  account_id   = "autogen-posix-fn"
   display_name = "Cloud Function SA for posixAccounts populator"
 }
 
@@ -55,16 +78,23 @@ resource "google_project_iam_member" "fn_secret_accessor" {
   member  = "serviceAccount:${google_service_account.fn.email}"
 }
 
+# Allow function SA to invoke runs
+resource "google_project_iam_member" "fn_secret_accessor" {
+  project = var.project_id
+  role    = "roles/run.invoker"
+  member  = "serviceAccount:${google_service_account.fn.email}"
+}
+
 # ----------------------------
 # Pub/Sub topic for scheduled trigger
 # ----------------------------
 resource "google_pubsub_topic" "topic" {
-  name = "posix-populator-trigger"
+  name = "autogen-posix-trigger"
 }
 
 # Let Cloud Scheduler publish to the topic
 resource "google_service_account" "scheduler" {
-  account_id   = "posix-populator-scheduler"
+  account_id   = "autogen-posix-scheduler"
   display_name = "Scheduler SA for posix populator"
 }
 
@@ -76,7 +106,7 @@ resource "google_pubsub_topic_iam_member" "allow_scheduler_publish" {
 
 # Cloud Scheduler job → Pub/Sub
 resource "google_cloud_scheduler_job" "job" {
-  name        = "posix-populator-cron"
+  name        = "autogen-posix-cron"
   schedule    = var.cron_schedule
   time_zone   = "Etc/UTC"
 
@@ -106,7 +136,7 @@ data "archive_file" "src_zip" {
 
 # Artifact Registry is the default for Gen2 builds; we can deploy from local zip directly.
 resource "google_cloudfunctions2_function" "fn" {
-  name        = "posix-populator"
+  name        = "autogen-posix"
   location    = var.region
   description = "Populate Workspace posixAccounts for users missing it"
 
@@ -124,7 +154,7 @@ resource "google_cloudfunctions2_function" "fn" {
   service_config {
     available_memory      = "512M"
     timeout_seconds       = 540
-    max_instance_count    = 3
+    max_instance_count    = 2
     service_account_email = google_service_account.fn.email
 
     # Env config for the function
@@ -140,6 +170,8 @@ resource "google_cloudfunctions2_function" "fn" {
       RPS                 = tostring(var.rps)
       MAX_RETRIES         = tostring(var.max_retries)
       IMPERSONATE_EMAIL   = var.sa_email_to_impersonate
+      SECRET_RESOURCE_ID  = google_secret_manager_secret.dwd_sa_key.id
+      SECRET_VERSION      = "latest"
     }
   }
 
