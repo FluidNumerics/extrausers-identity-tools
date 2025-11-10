@@ -56,19 +56,6 @@ resource "google_project_iam_member" "fn_secret_accessor" {
 }
 
 # ----------------------------
-# Secret Manager (DWD service account key JSON)
-# ----------------------------
-resource "google_secret_manager_secret" "dwd_sa_key" {
-  secret_id  = "workspace-dwd-sa-key"
-  replication { automatic = true }
-}
-
-resource "google_secret_manager_secret_version" "dwd_sa_key_v" {
-  secret      = google_secret_manager_secret.dwd_sa_key.id
-  secret_data = var.workspace_dwd_sa_key_json
-}
-
-# ----------------------------
 # Pub/Sub topic for scheduled trigger
 # ----------------------------
 resource "google_pubsub_topic" "topic" {
@@ -153,11 +140,7 @@ resource "google_cloudfunctions2_function" "fn" {
       RPS                 = tostring(var.rps)
       MAX_RETRIES         = tostring(var.max_retries)
       IMPERSONATE_EMAIL   = var.sa_email_to_impersonate
-      SECRET_RESOURCE_ID  = google_secret_manager_secret.dwd_sa_key.id
-      SECRET_VERSION      = "latest"
     }
-    # Let the function reach Secret Manager (no extra egress needed)
-    ingress_settings = "ALLOW_INTERNAL_AND_GCLB"
   }
 
   event_trigger {

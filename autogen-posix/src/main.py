@@ -7,10 +7,8 @@ import time
 from typing import Dict, List, Optional, Set, Tuple
 
 import google.auth
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from google.cloud import secretmanager
 
 SCOPE_USER_RW = "https://www.googleapis.com/auth/admin.directory.user"
 
@@ -45,15 +43,6 @@ def next_free(start: int, used: Set[int]) -> int:
         n += 1
     used.add(n)
     return n
-
-def load_sa_credentials_from_secret(secret_resource_id: str, version: str = "latest"):
-    # secret_resource_id like: projects/123/secrets/workspace-dwd-sa-key
-    client = secretmanager.SecretManagerServiceClient()
-    name = f"{secret_resource_id}/versions/{version}"
-    payload = client.access_secret_version(request={"name": name}).payload.data
-    info = json.loads(payload.decode("utf-8"))
-    creds = service_account.Credentials.from_service_account_info(info, scopes=[SCOPE_USER_RW])
-    return creds
 
 def get_directory_service(creds, subject: str):
     # Domain-wide delegation: impersonate admin subject
@@ -206,7 +195,7 @@ def run(event=None, context=None):
     secret_version = os.environ.get("SECRET_VERSION", "latest")
 
     # Load DWD service account key from Secret Manager
-    creds = load_sa_credentials_from_secret(secret_resource_id, secret_version)
+    creds, _ = google.auth.default(scopes=[SCOPE_USER_RW])
     svc = get_directory_service(creds, subject=imp)
 
     result = populate_posix_accounts(
