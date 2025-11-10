@@ -2,6 +2,7 @@
 
 This is a lightweight, simple tool that uses the google admin sdk to populate the `/etc/extrausers/{passwd,group,shadow}` files. When combined with `nss_extrausers`, this provides a simple scaleable alternative to Google Secure LDAP that mitigates quota issues.
 
+[**Quickstart**](./Quickstart.md)
 
 ## Components
 

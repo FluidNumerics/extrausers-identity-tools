@@ -1,0 +1,5 @@
+terraform.tfstate*
+tfplan
+src.zip
+.terraform.lock.hcl
+.terraform
