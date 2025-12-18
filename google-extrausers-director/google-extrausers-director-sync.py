@@ -41,6 +41,15 @@ from googleapiclient.errors import HttpError
 SCOPES=["https://www.googleapis.com/auth/admin.directory.user.readonly",
         "https://www.googleapis.com/auth/admin.directory.group.readonly"]
 
+current_version = (sys.version_info.major, sys.version_info.minor)
+if sys.version_info.major >= 3:
+    if sys.version_info.minor >= 12:
+      NOW_ISO = dt.datetime.now(dt.UTC)
+    else:
+      NOW_ISO = dt.datetime.utcnow().isoformat(timespec="seconds")+"Z"
+else:
+    print("Python minimum major version : 3")
+    sys.exit(1)
 
 # -------------------- API + pacing --------------------
 def get_directory_service(sa_key_path: str, subject: str):
@@ -199,7 +208,6 @@ def update_groups_db(svc, groups, conn, args):
     used_gids = get_used_gids(conn)
 
     active_group_ids = []
-    now_iso = dt.datetime.now(dt.UTC)
 
     # Upsert groups, allocate gid if new
     for g in groups:
@@ -220,7 +228,7 @@ def update_groups_db(svc, groups, conn, args):
             etag=excluded.etag,
             active=1,
             updated_at=excluded.updated_at
-        """, (g["id"], g.get("email",""), gname, gid, g.get("etag"), now_iso))
+        """, (g["id"], g.get("email",""), gname, gid, g.get("etag"), NOW_ISO))
 
         active_group_ids.append(g["id"])
 
@@ -263,7 +271,7 @@ def update_groups_db(svc, groups, conn, args):
 
     conn.commit()
 
-def list_all_groups(svc, customer: str | None, domain: str | None, rps: float, max_retries: int) -> list[dict]:
+def list_all_groups(svc, customer, domain, rps, max_retries):
     kwargs = {
         "maxResults": 200,
         "fields": "groups(id,email,name,etag),nextPageToken",
@@ -401,7 +409,6 @@ def update_users_db(users, conn, args):
     active_entries: List[dict] = []
 
     # Build current snapshot & update DB
-    now_iso = dt.datetime.now(dt.UTC)
 
     for u in users:
         if u.get("deleted") or u.get("suspended"):
@@ -430,7 +437,7 @@ def update_users_db(users, conn, args):
             "home": home,
             "shell": shell,
             "etag": u.get("etag"),
-            "updated_at": now_iso,
+            "updated_at": NOW_ISO,
         }
 
         # Compare with DB, upsert if changed
