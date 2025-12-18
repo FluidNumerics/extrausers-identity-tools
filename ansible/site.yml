@@ -1,0 +1,11 @@
+- name: Install and configure extrausers director
+  hosts: directors
+  become: true
+  roles:
+    - extrausers_director
+
+- name: Install and configure extrausers agents
+  hosts: agents
+  become: true
+  roles:
+    - extrausers_agent

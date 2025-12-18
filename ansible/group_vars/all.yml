@@ -1,0 +1,4 @@
+# Where the repo should live on the node
+extrausers_repo_dir: /opt/extrausers-identity-tools
+extrausers_repo_url: "https://github.com/fluidnumerics/extrausers-identity-tools.git"
+extrausers_repo_version: "main"

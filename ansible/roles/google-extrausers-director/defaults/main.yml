@@ -1,0 +1,2 @@
+extrausers_make_target_install: install
+extrausers_make_target_enable: enable

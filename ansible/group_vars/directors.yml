@@ -1,0 +1,12 @@
+
+# Director config
+extrausers_sa_key_path: "/etc/google/sa.json"
+extrausers_impersonate: "admin@example.org"
+extrausers_domain: "example.org"
+
+extrausers_group_start_gid: 30000
+extrausers_group_end_gid: 39999
+
+# (Recommended) store SA JSON in vault
+# extrausers_sa_json: "{{ vault_extrausers_sa_json }}"
+

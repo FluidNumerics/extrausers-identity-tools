@@ -1,0 +1,86 @@
+- name: Ensure repo present (clone/update)
+  git:
+    repo: "{{ extrausers_repo_url }}"
+    dest: "{{ extrausers_repo_dir }}"
+    version: "{{ extrausers_repo_version }}"
+    update: true
+  when: extrausers_repo_url is defined
+
+- name: Run make install (director)
+  command: make {{ extrausers_make_target_install }}
+  args:
+    chdir: "{{ extrausers_repo_dir }}/google-extrausers-director"
+  register: make_install
+  changed_when: "'Nothing to be done' not in make_install.stdout"
+
+- name: Ensure publish dir exists
+  file:
+    path: /srv/idcache
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure director config dir exists
+  file:
+    path: /etc/extrausers-director
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Write director config
+  template:
+    src: director-config.j2
+    dest: /etc/extrausers-director/config
+    owner: root
+    group: root
+    mode: "0640"
+  notify: restart director timer
+
+- name: Write publish.conf
+  template:
+    src: publish.conf.j2
+    dest: /etc/extrausers-director/publish.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart director timer
+
+- name: Install service account key
+  when: extrausers_sa_json is defined
+  copy:
+    content: "{{ extrausers_sa_json }}"
+    dest: "{{ extrausers_sa_key_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Ensure DB directory exists
+  file:
+    path: "/var/lib/extrausers-director/idcache"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+# If your Makefile already enables timers, you can skip this.
+- name: Enable director timer
+  systemd:
+    name: extrausers-director-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Run initial sync now
+  systemd:
+    name: extrausers-director-sync.service
+    state: started
+
+handlers:
+  - name: restart director timer
+    systemd:
+      name: extrausers-director-sync.timer
+      state: restarted
+      daemon_reload: true
+
