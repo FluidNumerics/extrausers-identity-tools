@@ -1,0 +1,6 @@
+# One source per line. No trailing filename.
+# Examples:
+# idcache@dir1.example.org:/srv/idcache
+# idcache@dir2.example.org:/srv/idcache
+idcache@dir1.example.org:/srv/idcache
+idcache@dir2.example.org:/srv/idcache

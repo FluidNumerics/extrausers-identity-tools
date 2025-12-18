@@ -1,0 +1,17 @@
+[Unit]
+Description=Pull /var/lib/extrausers from director nodes
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment="SOURCES_FILE=/etc/extrausers-pull/sources.list"
+Environment="MAX_AGE_SECONDS=10800"
+# Optional env overrides (usually leave this out and rely on /etc/extrausers-pull/sources.list)
+# Environment="SOURCES=idcache@dir1.example.org:/srv/idcache idcache@dir2.example.org:/srv/idcache"
+ExecStart=/usr/sbin/extrausers-agent-sync
+User=root
+Group=root
+Nice=5
+
+
