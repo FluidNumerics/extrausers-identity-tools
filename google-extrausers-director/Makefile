@@ -56,6 +56,13 @@ check:
 	@test -f "$(TIMER_UNIT)" || (echo "Missing $(TIMER_UNIT)" && exit 1)
 
 install: check
+	# Create idcache user
+	useradd --system --home $(IDCACHE_DIR) --shell /usr/sbin/nologin idcache
+	chown -R root:idcache $(IDCACHE_DIR)
+	chmod 0750 $(IDCACHE_DIR)
+
+
+
 	# Create directories
 	install -d "$(DESTDIR)$(SBINDIR)"
 	install -d "$(DESTDIR)$(CONFDIR)"
