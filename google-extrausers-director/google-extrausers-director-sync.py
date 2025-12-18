@@ -199,7 +199,7 @@ def update_groups_db(svc, groups, conn, args):
     used_gids = get_used_gids(conn)
 
     active_group_ids = []
-    now_iso = dt.datetime.utcnow().isoformat(timespec="seconds")+"Z"
+    now_iso = dt.datetime.now(dt.UTC)
 
     # Upsert groups, allocate gid if new
     for g in groups:
@@ -401,7 +401,7 @@ def update_users_db(users, conn, args):
     active_entries: List[dict] = []
 
     # Build current snapshot & update DB
-    now_iso = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    now_iso = dt.datetime.now(dt.UTC)
 
     for u in users:
         if u.get("deleted") or u.get("suspended"):
