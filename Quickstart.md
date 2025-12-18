@@ -9,7 +9,7 @@ The `google-extrausers-director` service uses Google's Admin SDK to pull user in
 ### 1) Install dependencies (Debian/Ubuntu):
 ```
 sudo apt-get update
-sudo apt-get install -y python3 python3-google-api-python-client python3-google-auth python3-google-auth-httplib2 coreutils tar systemd libnss-extrausers
+sudo apt-get install -y python3 python3-googleapi python3-google-auth python3-google-auth-httplib2 python3-google-auth-oauthlib libnss-extrausers
 ```
 
 ### 2) Install the package:
