@@ -7,7 +7,11 @@ SOURCES_FILE="${SOURCES_FILE:-$CONF_DIR/sources.list}"
 WORK="${WORK:-/var/lib/extrausers.pull}"
 OUTDIR="${OUTDIR:-/var/lib/extrausers}"
 
-RSYNC_RSH="${RSYNC_RSH:-ssh -o StrictHostKeyChecking=yes -o BatchMode=yes -o ConnectTimeout=10}"
+RSYNC_RSH="ssh -l idcache -i /etc/extrausers-pull/idcache_ed25519 \
+  -o BatchMode=yes \
+  -o StrictHostKeyChecking=yes \
+  -o PermitLocalCommand=no"
+
 MAX_AGE_SECONDS="${MAX_AGE_SECONDS:-10800}"   # 3h
 
 mkdir -p "$WORK" "$OUTDIR" "$CONF_DIR"

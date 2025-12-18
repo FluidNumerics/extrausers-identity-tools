@@ -1,6 +1,0 @@
-#!/bin/sh
-set -e
-if [ "$1" = remove ]; then
-  systemctl disable --now extrausers-pull-rsync.timer || true
-fi
-exit 0

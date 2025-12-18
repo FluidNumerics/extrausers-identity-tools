@@ -23,3 +23,4 @@ MAX_RETRIES=5
 
 # Where to publish for agents (served via HTTPS or rsync)
 PUBLISH_DIR=/srv/idcache
+IDCACHE_USER=idcache

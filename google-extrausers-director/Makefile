@@ -22,6 +22,7 @@ SHELL := /bin/bash
 PREFIX      ?= /usr
 SYSCONFDIR   ?= /etc
 SYSTEMDUNITDIR ?= /lib/systemd/system
+IDCACHE_USER ?= idcache
 
 SBINDIR     := $(PREFIX)/sbin
 CONFDIR     := $(SYSCONFDIR)/google-extrausers-director
@@ -57,9 +58,8 @@ check:
 
 update: check 
 	# Create idcache user
-	useradd --system --home $(IDCACHE_DIR) --shell /usr/sbin/nologin idcache
 	mkdir -p $(IDCACHE_DIR)
-	chown -R root:idcache $(IDCACHE_DIR)
+	chown -R root:$(IDCACHE_USER) $(IDCACHE_DIR)
 	chmod 0750 $(IDCACHE_DIR)
 
 	# Install scripts
