@@ -21,6 +21,9 @@ ExecStart=/usr/bin/env bash -lc '\
     --db     "${DB:-/var/lib/googleworkspace-idcache/users.db}" \
     --default-shell "${DEFAULT_SHELL:-/bin/bash}" \
     --home-template "${HOME_TEMPLATE:-/home/{username}}" \
+    --group-sync \
+    --group-start-gid "${GROUP_START_GID:-30000} \
+    --group-end-gid "${GROUP_START_GID:-39999} \
     --rps "${RPS:-5}" \
     --max-retries "${MAX_RETRIES:-5}" \
     ${VERBOSE:+--verbose} \

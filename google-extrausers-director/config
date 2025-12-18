@@ -6,6 +6,10 @@ IMPERSONATE=admin@example.org
 CUSTOMER=my_customer
 # DOMAIN=example.org
 
+# Group synchronization
+GROUP_START_GID=80000
+GROUP_END_GID=89999
+
 # Optional (defaults shown)
 OUTDIR=/var/lib/extrausers
 DB=/var/lib/googleworkspace-idcache/users.db

@@ -3,3 +3,7 @@ tfplan
 src.zip
 .terraform.lock.hcl
 .terraform
+
+build/
+*.deb
+sa.json
