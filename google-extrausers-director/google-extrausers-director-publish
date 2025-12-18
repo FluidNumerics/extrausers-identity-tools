@@ -12,8 +12,6 @@ mv -f "$TMP" "$PUB/extrausers.tgz"
 # Create checksum (sha256)
 ( cd "$PUB" && sha256sum extrausers.tgz > extrausers.tgz.sha256 )
 
-chown root:${IDCACHE_USER} /srv/idcache/extrausers.tgz
-chown root:${IDCACHE_USER} /srv/idcache/extrausers.tgz.sha256
-
-chmod 0644 "$PUB/extrausers.tgz" "$PUB/extrausers.tgz.sha256"
-
+chmod 0700 /srv/idcache
+setfacl -m u:${IDCACHE_USER}:rx /srv/idcache
+setfacl -m u:${IDCACHE_USER}:r  /srv/idcache/extrausers.tgz /srv/idcache/extrausers.tgz.sha256

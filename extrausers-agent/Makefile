@@ -1,10 +1,10 @@
-# Makefile for extrausers-pull (rsync/ssh puller)
+# Makefile for extrausers-agent (rsync/ssh puller)
 #
 # Installs:
-#   /usr/sbin/extrausers-pull-and-install
-#   /etc/extrausers-pull/sources.list
-#   /lib/systemd/system/extrausers-pull.service
-#   /lib/systemd/system/extrausers-pull.timer
+#   /usr/sbin/extrausers-agent-and-install
+#   /etc/extrausers-agent/sources.list
+#   /lib/systemd/system/extrausers-agent.service
+#   /lib/systemd/system/extrausers-agent.timer
 #
 # Usage:
 #   sudo make install
@@ -22,17 +22,15 @@ SYSCONFDIR      ?= /etc
 SYSTEMDUNITDIR  ?= /lib/systemd/system
 
 SBINDIR   := $(PREFIX)/sbin
-CONFDIR   := $(SYSCONFDIR)/extrausers-pull
 
-SCRIPT_SRC    ?= extrausers-pull-and-install
-SERVICE_SRC   ?= extrausers-pull.service
-TIMER_SRC     ?= extrausers-pull.timer
+SCRIPT_SRC    ?= extrausers-agent-sync
+SERVICE_SRC   ?= extrausers-agent.service
+TIMER_SRC     ?= extrausers-agent.timer
 SOURCES_SRC   ?= sources.list
 
-SCRIPT_DST    := $(SBINDIR)/extrausers-pull-and-install
-SERVICE_DST   := $(SYSTEMDUNITDIR)/extrausers-pull.service
-TIMER_DST     := $(SYSTEMDUNITDIR)/extrausers-pull.timer
-SOURCES_DST   := $(CONFDIR)/sources.list
+SCRIPT_DST    := $(SBINDIR)/extrausers-agent-and-install
+SERVICE_DST   := $(SYSTEMDUNITDIR)/extrausers-agent.service
+TIMER_DST     := $(SYSTEMDUNITDIR)/extrausers-agent.timer
 
 .PHONY: all check install uninstall enable disable reload status
 
@@ -69,15 +67,15 @@ install: check
 enable:
 	@if command -v systemctl >/dev/null 2>&1; then \
 		systemctl daemon-reload || true; \
-		systemctl enable --now extrausers-pull.timer; \
+		systemctl enable --now extrausers-agent.timer; \
 	else \
 		echo "systemctl not found"; exit 1; \
 	fi
 
 disable:
 	@if command -v systemctl >/dev/null 2>&1; then \
-		systemctl disable --now extrausers-pull.timer || true; \
-		systemctl disable --now extrausers-pull.service || true; \
+		systemctl disable --now extrausers-agent.timer || true; \
+		systemctl disable --now extrausers-agent.service || true; \
 		systemctl daemon-reload || true; \
 	else \
 		echo "systemctl not found"; exit 1; \
@@ -92,8 +90,8 @@ reload:
 
 status:
 	@if command -v systemctl >/dev/null 2>&1; then \
-		systemctl status extrausers-pull.timer --no-pager || true; \
-		systemctl status extrausers-pull.service --no-pager || true; \
+		systemctl status extrausers-agent.timer --no-pager || true; \
+		systemctl status extrausers-agent.service --no-pager || true; \
 	else \
 		echo "systemctl not found"; exit 1; \
 	fi
@@ -101,8 +99,8 @@ status:
 uninstall:
 	# Stop/disable first if possible (only on real host)
 	@if [ -z "$(DESTDIR)" ] && command -v systemctl >/dev/null 2>&1; then \
-		systemctl disable --now extrausers-pull.timer || true; \
-		systemctl disable --now extrausers-pull.service || true; \
+		systemctl disable --now extrausers-agent.timer || true; \
+		systemctl disable --now extrausers-agent.service || true; \
 	fi
 
 	rm -f "$(DESTDIR)$(SCRIPT_DST)"
