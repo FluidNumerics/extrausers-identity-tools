@@ -4,7 +4,10 @@
 The `autogen-posix` service is a Google Cloud Run Function (and associated infrastructre) that can be used to automatically populate `posixAccounts` fields for users in your Google Workspace organization. See the [autogen-posix README](./autogen-posix/README.md) for more details
 
 ## google-extrausers-director
-The `google-extrausers-director` service uses Google's Admin SDK to pull user information for Google Workspace and Cloud Identity accounts; specifically, it leverages the `posixAccount` field obtained from a `user.get` call. To use this service, you need to [create a service account with domain wide delegation](https://support.google.com/a/answer/162106?hl=en) to impersonate an admin with `https://www.googleapis.com/auth/admin.directory.user.readonly` scopes.
+The `google-extrausers-director` service uses Google's Admin SDK to pull user information for Google Workspace and Cloud Identity accounts; specifically, it leverages the `posixAccount` field obtained from a `user.get` call. To use this service, you need to [create a service account with domain wide delegation](https://support.google.com/a/answer/162106?hl=en) to impersonate an admin with the following scopes
+* `https://www.googleapis.com/auth/admin.directory.user.readonly`
+* `https://www.googleapis.com/auth/admin.directory.group.readonly`
+* `https://www.googleapis.com/auth/admin.directory.group.member.readonly`
 
 ### 1) Install dependencies (Debian/Ubuntu):
 ```

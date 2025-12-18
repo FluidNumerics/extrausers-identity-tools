@@ -6,6 +6,14 @@ IMPERSONATE=admin@example.org
 CUSTOMER=my_customer
 # DOMAIN=example.org
 
+# Group synchronization
+GROUP_SYNC=1
+GROUP_START_GID=80000
+GROUP_END_GID=89999
+GROUP_NAME_FROM=email_localpart # or full_email
+GROUP_INCLUDE_NESTED=0 # if 1, recursively expand nested groups
+
+
 # Optional (defaults shown)
 OUTDIR=/var/lib/extrausers
 DB=/var/lib/googleworkspace-idcache/users.db

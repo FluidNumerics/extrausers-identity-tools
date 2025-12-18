@@ -38,13 +38,14 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-SCOPE_USER_READONLY = "https://www.googleapis.com/auth/admin.directory.user.readonly"
+SCOPES=["https://www.googleapis.com/auth/admin.directory.user.readonly",
+        "https://www.googleapis.com/auth/admin.directory.group.readonly"]
 
 
 # -------------------- API + pacing --------------------
 def get_directory_service(sa_key_path: str, subject: str):
     creds = service_account.Credentials.from_service_account_file(
-        sa_key_path, scopes=[SCOPE_USER_READONLY]
+        sa_key_path, scopes=SCOPES
     ).with_subject(subject)
     return build("admin", "directory_v1", credentials=creds, cache_discovery=False)
 
@@ -66,6 +67,7 @@ DDL = """
 PRAGMA journal_mode=WAL;
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
+    email TEXT,
     username TEXT,
     uid INTEGER,
     gid INTEGER,
@@ -80,6 +82,30 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS groups (
+    group_id TEXT PRIMARY KEY,       -- Admin SDK group "id" (stable)
+    email TEXT NOT NULL,              -- group email
+    name TEXT NOT NULL,               -- sanitized POSIX group name
+    gid INTEGER NOT NULL UNIQUE,      -- allocated gid
+    etag TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    updated_at TEXT
+);
+
+-- Many-to-many: group -> usernames
+CREATE TABLE IF NOT EXISTS group_members (
+    group_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    PRIMARY KEY (group_id, username),
+    FOREIGN KEY (group_id) REFERENCES groups(group_id) ON DELETE CASCADE
+);
+
+-- Optional: record allocator cursors
+CREATE TABLE IF NOT EXISTS allocators (
+    key TEXT PRIMARY KEY,
+    next_value INTEGER NOT NULL
+);
+
 """
 
 
@@ -113,6 +139,7 @@ def user_row_changed(db_row: Optional[tuple], new: dict) -> bool:
         return True
     (
         _id,
+        email,
         username,
         uid,
         gid,
@@ -126,6 +153,7 @@ def user_row_changed(db_row: Optional[tuple], new: dict) -> bool:
     return any(
         [
             username != new["username"],
+            email != new["email"],
             uid != new["uid"],
             gid != new["gid"],
             gecos != new["gecos"],
@@ -140,10 +168,11 @@ def user_row_changed(db_row: Optional[tuple], new: dict) -> bool:
 def upsert_user(conn: sqlite3.Connection, record: dict):
     conn.execute(
         """
-        INSERT INTO users(id, username, uid, gid, gecos, home, shell, etag, active, updated_at)
-        VALUES(:id, :username, :uid, :gid, :gecos, :home, :shell, :etag, 1, :updated_at)
+        INSERT INTO users(id, email, username, uid, gid, gecos, home, shell, etag, active, updated_at)
+        VALUES(:id, :email, :username, :uid, :gid, :gecos, :home, :shell, :etag, 1, :updated_at)
         ON CONFLICT(id) DO UPDATE SET
           username=excluded.username,
+          email=excluded.email,
           uid=excluded.uid,
           gid=excluded.gid,
           gecos=excluded.gecos,
@@ -164,6 +193,264 @@ def deactivate_missing_users(conn: sqlite3.Connection, present_ids: List[str]) -
 
 
 # -------------------- Helpers --------------------
+def update_groups_db(svc, groups, conn, args):
+
+    # Used gids should consider BOTH user primary gids and any already-allocated group gids
+    used_gids = get_used_gids(conn)
+
+    active_group_ids = []
+    now_iso = dt.datetime.utcnow().isoformat(timespec="seconds")+"Z"
+
+    # Upsert groups, allocate gid if new
+    for g in groups:
+        gid_row = conn.execute("SELECT gid FROM groups WHERE group_id=?", (g["id"],)).fetchone()
+        if gid_row:
+            gid = int(gid_row[0])
+        else:
+            gid = allocate_gid_in_range(conn, args.group_start_gid, args.group_end_gid, used_gids)
+
+        gname = sanitize_groupname(g.get("email",""))
+
+        conn.execute("""
+          INSERT INTO groups(group_id,email,name,gid,etag,active,updated_at)
+          VALUES(?,?,?,?,?,1,?)
+          ON CONFLICT(group_id) DO UPDATE SET
+            email=excluded.email,
+            name=excluded.name,
+            etag=excluded.etag,
+            active=1,
+            updated_at=excluded.updated_at
+        """, (g["id"], g.get("email",""), gname, gid, g.get("etag"), now_iso))
+
+        active_group_ids.append(g["id"])
+
+    # Mark missing groups inactive
+    if active_group_ids:
+        qmarks = ",".join("?" for _ in active_group_ids)
+        conn.execute(f"UPDATE groups SET active=0 WHERE group_id NOT IN ({qmarks})", active_group_ids)
+
+    # Build a map email->username from user cache (active users)
+    email_to_username = {}
+    cols = conn.execute("PRAGMA table_info(users)").fetchall()
+    has_email = any(c[1] == "email" for c in cols)
+    if has_email:
+        for email, uname in conn.execute("SELECT email, username FROM users WHERE active=1").fetchall():
+            if email:
+                email_to_username[email.lower()] = uname
+
+    # Refresh memberships (simple approach: clear + repopulate per group)
+    for gid, email in conn.execute("SELECT group_id, email FROM groups WHERE active=1").fetchall():
+        conn.execute("DELETE FROM group_members WHERE group_id=?", (gid,))
+
+        members = list_group_members(svc, email, args.rps, args.max_retries)
+
+        for m in members:
+            m_email = (m.get("email") or "").lower()
+            m_type  = (m.get("type")  or "").upper()
+            m_stat  = (m.get("status") or "").upper()
+
+            # Skip suspended/inactive membership entries
+            if m_stat and m_stat not in ("ACTIVE",):
+                continue
+
+            if m_type == "USER":
+                uname = email_to_username.get(m_email)
+                if uname:
+                    conn.execute("INSERT OR IGNORE INTO group_members(group_id, username) VALUES(?,?)", (gid, uname))
+            else:
+                # Currently, we don't support groups of groups.
+                pass
+
+    conn.commit()
+
+def list_all_groups(svc, customer: str | None, domain: str | None, rps: float, max_retries: int) -> list[dict]:
+    kwargs = {
+        "maxResults": 200,
+        "fields": "groups(id,email,name,etag),nextPageToken",
+    }
+    if domain:
+        kwargs["domain"] = domain
+    else:
+        kwargs["customer"] = customer or "my_customer"
+
+    groups = []
+    req = svc.groups().list(**kwargs)
+    while req is not None:
+        pace(rps)
+        for attempt in range(max_retries + 1):
+            try:
+                resp = req.execute(); break
+            except HttpError as e:
+                s = getattr(e, "resp", None).status if getattr(e, "resp", None) else None
+                if s in (429,500,502,503,504) or "rateLimitExceeded" in str(e) or "userRateLimitExceeded" in str(e):
+                    backoff_sleep(attempt); continue
+                raise
+        groups.extend(resp.get("groups", []))
+        req = svc.groups().list_next(previous_request=req, previous_response=resp)
+    return groups
+
+def list_group_members(svc, group_email: str, rps: float, max_retries: int) -> list[dict]:
+    kwargs = {
+        "groupKey": group_email,
+        "maxResults": 200,
+        "fields": "members(email,type,status),nextPageToken",
+    }
+    members = []
+    req = svc.members().list(**kwargs)
+    while req is not None:
+        pace(rps)
+        for attempt in range(max_retries + 1):
+            try:
+                resp = req.execute(); break
+            except HttpError as e:
+                s = getattr(e, "resp", None).status if getattr(e, "resp", None) else None
+                if s in (429,500,502,503,504) or "rateLimitExceeded" in str(e) or "userRateLimitExceeded" in str(e):
+                    backoff_sleep(attempt); continue
+                # common: 404 if group vanished between list and member fetch
+                if s == 404:
+                    return []
+                raise
+        members.extend(resp.get("members", []) or [])
+        req = svc.members().list_next(previous_request=req, previous_response=resp)
+    return members
+
+def sanitize_groupname(email: str) -> str:
+    # default: email local-part
+    local = email.split("@")[0] if "@" in email else email
+    name = "".join(c for c in local.lower() if c.isalnum() or c in ("-", "_", "."))
+    return name
+
+def get_used_gids(conn: sqlite3.Connection) -> set[int]:
+    used = set()
+    for (gid,) in conn.execute("SELECT gid FROM users WHERE active=1").fetchall():
+        used.add(int(gid))
+    for (gid,) in conn.execute("SELECT gid FROM groups WHERE active=1").fetchall():
+        used.add(int(gid))
+    return used
+
+def allocate_gid_in_range(conn: sqlite3.Connection, start: int, end: int, used: set[int]) -> int:
+    # Optional cursor
+    row = conn.execute("SELECT next_value FROM allocators WHERE key='group_gid'").fetchone()
+    n = int(row[0]) if row else start
+    if n < start: n = start
+
+    while True:
+        if n > end:
+            raise RuntimeError(f"Out of group GIDs in range [{start},{end}]")
+        if n not in used:
+            used.add(n)
+            conn.execute(
+                "INSERT INTO allocators(key,next_value) VALUES('group_gid',?) "
+                "ON CONFLICT(key) DO UPDATE SET next_value=?",
+                (n + 1, n + 1),
+            )
+            return n
+        n += 1
+
+def fetch_users(svc, args):
+
+    # Build request
+    base_req = {
+        "projection": "full",
+        "maxResults": 200,  # Admin SDK max
+        "orderBy": "email",
+    }
+    if args.domain:
+        base_req["domain"] = args.domain
+    else:
+        base_req["customer"] = args.customer
+
+    # Fetch users with pagination, pacing, and retries
+    users: List[dict] = []
+    req = svc.users().list(**base_req)
+    while req is not None:
+        # pacing
+        pace(args.rps)
+        for attempt in range(args.max_retries + 1):
+            try:
+                resp = req.execute()
+                break
+            except HttpError as e:
+                code = getattr(e, "status_code", None)
+                # Handle rate & 5xx-ish
+                if e.resp and e.resp.status in (429, 500, 502, 503, 504) or (
+                    "rateLimitExceeded" in str(e) or "userRateLimitExceeded" in str(e)
+                ):
+                    if attempt < args.max_retries:
+                        if args.verbose:
+                            print(f"Rate/Server error ({e.resp.status if e.resp else '??'}). Backing off (attempt {attempt+1})", file=sys.stderr)
+                        backoff_sleep(attempt)
+                        continue
+                # other errors: fail
+                raise
+        users.extend(resp.get("users", []))
+        req = svc.users().list_next(previous_request=req, previous_response=resp)
+
+    if args.verbose:
+        print(f"Fetched {len(users)} users", file=sys.stderr)
+
+    return users
+
+def update_users_db(users, conn, args):
+
+    # First, mark all as inactive; we'll reactivate those we see (more efficient with NOT IN at end)
+    present_ids: List[str] = []
+
+    # Prepare UNIX data + detect shared primary GIDs
+    gid_to_usernames: Dict[int, List[str]] = defaultdict(list)
+    active_entries: List[dict] = []
+
+    # Build current snapshot & update DB
+    now_iso = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+
+    for u in users:
+        if u.get("deleted") or u.get("suspended"):
+            continue
+        posix = pick_posix_account(u.get("posixAccounts", []))
+        if not posix:
+            continue
+        uid = posix.get("uid")
+        gid = posix.get("gid")
+        if uid is None or gid is None:
+            continue
+
+        username = sanitize_username(posix.get("username") or u.get("primaryEmail", "").split("@")[0])
+        full_name = (u.get("name") or {}).get("fullName") or username
+        gecos = posix.get("gecos") or full_name
+        shell = posix.get("shell") or args.default_shell
+        home = posix.get("homeDirectory") or args.home_template.format(username=username)
+
+        record = {
+            "id": u["id"],
+            "email": u["primaryEmail"],
+            "username": username,
+            "uid": int(uid),
+            "gid": int(gid),
+            "gecos": gecos,
+            "home": home,
+            "shell": shell,
+            "etag": u.get("etag"),
+            "updated_at": now_iso,
+        }
+
+        # Compare with DB, upsert if changed
+        cur = conn.execute("SELECT * FROM users WHERE id=?", (u["id"],))
+        row = cur.fetchone()
+        if user_row_changed(row, record):
+            upsert_user(conn, record)
+        else:
+            # even if unchanged, ensure active=1
+            conn.execute("UPDATE users SET active=1 WHERE id=?", (u["id"],))
+
+        present_ids.append(u["id"])
+        gid_to_usernames[int(gid)].append(username)
+        active_entries.append(record)
+
+    # Deactivate users not present in current fetch
+    deactivated = deactivate_missing_users(conn, present_ids) if present_ids else 0
+    conn.commit()
+    return active_entries, gid_to_usernames, deactivated
+
 def sanitize_username(u: str) -> str:
     import re
     # lowercase and replace disallowed chars
@@ -211,6 +498,9 @@ def main():
     ap.add_argument("--db", default="/var/lib/googleworkspace-idcache/users.db", help="SQLite cache path.")
     ap.add_argument("--default-shell", default="/bin/bash", help="Default shell if missing in posixAccounts.")
     ap.add_argument("--home-template", default="/home/{username}", help="Template for home dir if missing.")
+    ap.add_argument("--group-sync", action="store_true", help="Sync Google Groups")
+    ap.add_argument("--group-start-gid", type=int, default=30000, help="Starting gid for Google Groups -> POSIX Groups")
+    ap.add_argument("--group-end-gid", type=int, default=39999, help="Ending gid for Google Groups -> POSIX Groups")
     ap.add_argument("--rps", type=float, default=5.0, help="Max requests per second (API pacing).")
     ap.add_argument("--max-retries", type=int, default=5, help="Max retries on rate/5xx errors.")
     ap.add_argument("--dry-run", action="store_true", help="Print would-be files; do not write.")
@@ -227,103 +517,18 @@ def main():
     # DB connect
     conn = db_connect(args.db)
 
-    # Build request
-    base_req = {
-        "projection": "full",
-        "maxResults": 200,  # Admin SDK max
-        "orderBy": "email",
-    }
-    if args.domain:
-        base_req["domain"] = args.domain
-    else:
-        base_req["customer"] = args.customer
+    users = fetch_users(svc, args)
 
-    # Fetch users with pagination, pacing, and retries
-    users: List[dict] = []
-    req = svc.users().list(**base_req)
-    while req is not None:
-        # pacing
-        pace(args.rps)
-        for attempt in range(args.max_retries + 1):
-            try:
-                resp = req.execute()
-                break
-            except HttpError as e:
-                code = getattr(e, "status_code", None)
-                # Handle rate & 5xx-ish
-                if e.resp and e.resp.status in (429, 500, 502, 503, 504) or (
-                    "rateLimitExceeded" in str(e) or "userRateLimitExceeded" in str(e)
-                ):
-                    if attempt < args.max_retries:
-                        if args.verbose:
-                            print(f"Rate/Server error ({e.resp.status if e.resp else '??'}). Backing off (attempt {attempt+1})", file=sys.stderr)
-                        backoff_sleep(attempt)
-                        continue
-                # other errors: fail
-                raise
-        users.extend(resp.get("users", []))
-        req = svc.users().list_next(previous_request=req, previous_response=resp)
+    active_entries, gid_to_usernames, deactivated = update_users_db(users, conn, args)
 
-    if args.verbose:
-        print(f"Fetched {len(users)} users", file=sys.stderr)
+    if args.group_sync:
+        if args.verbose:
+            print("Getting groups")
+        groups = list_all_groups(svc, args.customer if not args.domain else None, args.domain, args.rps, args.max_retries)
+        update_groups_db(svc, groups, conn, args)
 
-    # First, mark all as inactive; we'll reactivate those we see (more efficient with NOT IN at end)
-    present_ids: List[str] = []
 
-    # Prepare UNIX data + detect shared primary GIDs
-    gid_to_usernames: Dict[int, List[str]] = defaultdict(list)
-    active_entries: List[dict] = []
-
-    # Build current snapshot & update DB
-    now_iso = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
-
-    for u in users:
-        if u.get("deleted") or u.get("suspended"):
-            continue
-        posix = pick_posix_account(u.get("posixAccounts", []))
-        if not posix:
-            continue
-        uid = posix.get("uid")
-        gid = posix.get("gid")
-        if uid is None or gid is None:
-            continue
-
-        username = sanitize_username(posix.get("username") or u.get("primaryEmail", "").split("@")[0])
-        full_name = (u.get("name") or {}).get("fullName") or username
-        gecos = posix.get("gecos") or full_name
-        shell = posix.get("shell") or args.default_shell
-        home = posix.get("homeDirectory") or args.home_template.format(username=username)
-
-        record = {
-            "id": u["id"],
-            "username": username,
-            "uid": int(uid),
-            "gid": int(gid),
-            "gecos": gecos,
-            "home": home,
-            "shell": shell,
-            "etag": u.get("etag"),
-            "updated_at": now_iso,
-        }
-
-        # Compare with DB, upsert if changed
-        cur = conn.execute("SELECT * FROM users WHERE id=?", (u["id"],))
-        row = cur.fetchone()
-        if user_row_changed(row, record):
-            upsert_user(conn, record)
-        else:
-            # even if unchanged, ensure active=1
-            conn.execute("UPDATE users SET active=1 WHERE id=?", (u["id"],))
-
-        present_ids.append(u["id"])
-        gid_to_usernames[int(gid)].append(username)
-        active_entries.append(record)
-
-    # Deactivate users not present in current fetch
-    deactivated = deactivate_missing_users(conn, present_ids) if present_ids else 0
-
-    conn.commit()
-
+    ####### Render extrausers files ########
     # Compose groups dict (gid->name, members empty; primary implied)
     groups: Dict[int, Tuple[str, set]] = {}
     for gid, members in gid_to_usernames.items():
@@ -349,6 +554,14 @@ def main():
         members_csv = ",".join(sorted(members)) if members else ""
         group_lines.append(f"{name}:x:{gid}:{members_csv}")
 
+    # Add google groups
+    grows = conn.execute("SELECT group_id, name, gid FROM groups WHERE active=1 ORDER BY gid, name").fetchall()
+    for group_id, gname, gid in grows:
+        members = [u for (u,) in conn.execute(
+            "SELECT username FROM group_members WHERE group_id=? ORDER BY username", (group_id,)
+        ).fetchall()]
+        group_lines.append(f"{gname}:x:{gid}:{','.join(members)}")
+
     passwd_txt = "\n".join(passwd_lines) + ("\n" if passwd_lines else "")
     group_txt = "\n".join(group_lines) + ("\n" if group_lines else "")
     shadow_txt = "\n".join(shadow_lines) + ("\n" if shadow_lines else "")
@@ -360,7 +573,7 @@ def main():
 
     if args.verbose:
         print(
-            f"Active users: {len(rows)} | groups: {len(groups)} | changed: {changed} "
+            f"Active users: {len(rows)} | groups: {len(groups)}+{len(grows)} | changed: {changed} "
             f"| deactivated this run: {deactivated}",
             file=sys.stderr,
         )
