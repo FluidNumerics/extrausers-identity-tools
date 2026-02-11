@@ -60,17 +60,15 @@
 
 - name: Build libnss-extrausers
   shell: |
-    autoreconf -fi
-    ./configure --prefix=/usr --libdir={{ nss_extrausers_libdir }}
-    make -j$(nproc)
+    make
   args:
-    chdir: "{{ nss_extrausers_build_dir }}"
+    chdir: "{{ nss_extrausers_build_dir }}/src"
     creates: "{{ nss_extrausers_build_dir }}/libnss_extrausers.so"
 
 - name: Install libnss-extrausers
   command: make install
   args:
-    chdir: "{{ nss_extrausers_build_dir }}"
+    chdir: "{{ nss_extrausers_build_dir }}/src"
     creates: "{{ nss_extrausers_libdir }}/libnss_extrausers.so.2"
 
 - name: Run ldconfig
@@ -116,6 +114,7 @@
     dest: "{{ extrausers_repo_dir }}"
     version: "{{ extrausers_repo_version }}"
     update: true
+    accept_hostkey: true
   when: extrausers_repo_url is defined
 
 - name: Run make install (director)
