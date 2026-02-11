@@ -23,6 +23,7 @@ Example:
 
 import argparse
 import datetime as dt
+import grp
 import hashlib
 import json
 import os
@@ -215,13 +216,22 @@ def update_groups_db(svc, groups, conn, args):
     conn.execute("UPDATE groups SET gid = -ROWID")
 
     active_group_ids = []
+    claimed_system_gids = set()
 
     # Sort groups by their stable Google group ID so that collision resolution
     # (linear probing) is deterministic across independent service instances.
     for g in sorted(groups, key=lambda g: g["id"]):
-        gid = deterministic_gid(g["id"], args.group_start_gid, args.group_end_gid, used_gids)
-
         gname = sanitize_groupname(g.get("email",""))
+
+        # Check whether this group name matches an existing system group.
+        sys_gid = get_system_gid(gname, args.group_start_gid, args.group_end_gid)
+        if sys_gid is not None and sys_gid not in claimed_system_gids:
+            gid = sys_gid
+            claimed_system_gids.add(sys_gid)
+            if args.verbose:
+                print(f"Group '{gname}' matches system group (GID {gid}); using system GID", file=sys.stderr)
+        else:
+            gid = deterministic_gid(g["id"], args.group_start_gid, args.group_end_gid, used_gids)
 
         conn.execute("""
           INSERT INTO groups(group_id,email,name,gid,etag,active,updated_at)
@@ -332,6 +342,19 @@ def sanitize_groupname(email: str) -> str:
     local = email.split("@")[0] if "@" in email else email
     name = "".join(c for c in local.lower() if c.isalnum() or c in ("-", "_", "."))
     return name
+
+
+def get_system_gid(groupname: str, managed_start: int, managed_end: int) -> Optional[int]:
+    """Return the GID of a pre-existing system group, or None."""
+    try:
+        gid = grp.getgrnam(groupname).gr_gid
+        # Ignore GIDs inside our managed range — those are from previous
+        # runs of this script written to the extrausers group file.
+        if managed_start <= gid <= managed_end:
+            return None
+        return gid
+    except KeyError:
+        return None
 
 
 def deterministic_gid(group_id: str, start: int, end: int, used: set[int]) -> int:
