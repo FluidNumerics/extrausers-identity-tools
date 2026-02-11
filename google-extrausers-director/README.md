@@ -122,7 +122,7 @@ This service synchronizes **Google Workspace / Cloud Identity groups** into **PO
 ### Overview
 
 * Google Groups **do not natively store a POSIX GID**
-* The director service acts as the **authoritative allocator** for POSIX group IDs
+* The director service **deterministically derives** POSIX group IDs from each group's Google identity
 * Group membership is resolved from Google Workspace and rendered into:
 
   ```
@@ -139,33 +139,28 @@ Agent nodes periodically pull the rendered files from one of the director nodes.
 | ---------------- | -------------------------------- |
 | Group identity   | Google Workspace Directory API   |
 | Group members    | Google Workspace Members API     |
-| POSIX GID        | Director-local SQLite allocation |
+| POSIX GID        | Deterministic hash of Google group ID |
 | POSIX group name | Derived from Google group email  |
 | Group membership | Resolved user → username mapping |
 
 The **Google group `id`** (not email) is used as the stable key.
 This allows group email renames without changing the assigned GID.
 
-!! 
-
 ---
 
 ### GID Allocation Model
 
-* GIDs are allocated **once** from a configured numeric range
-* Example:
+GIDs are computed **deterministically** from the Google Group's stable `id` using SHA-256 hashing, mapped into a configured numeric range:
 
   ```ini
   GROUP_START_GID=30000
   GROUP_END_GID=39999
   ```
-* Allocated GIDs are stored in the director’s SQLite cache and **never change**
-* GIDs are guaranteed not to collide with:
 
-  * user primary GIDs
-  * other Google groups
-
-This mirrors traditional LDAP/IdM behavior where numeric IDs are directory-managed.
+* The same Google Group always produces the same GID, regardless of which director instance computes it
+* Independent instances with separate databases will arrive at identical GID assignments for the same set of groups
+* Collisions with user primary GIDs or other groups are resolved via deterministic linear probing (groups processed in sorted order by Google group ID)
+* GIDs are recomputed each sync run — they depend only on the org's groups and user primary GIDs, not on local database history
 
 ---
 
@@ -209,7 +204,7 @@ groupname:x:<gid>:user1,user2,user3
 On each sync run:
 
 1. List all Google groups
-2. Allocate GIDs for new groups
+2. Compute deterministic GIDs via hashing
 3. Update group metadata in SQLite
 4. Resolve and cache group memberships
 5. Render `/var/lib/extrausers/group`

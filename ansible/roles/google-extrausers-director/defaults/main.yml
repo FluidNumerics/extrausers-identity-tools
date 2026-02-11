@@ -1,0 +1,29 @@
+# Director install paths
+extrausers_confdir: "/etc/extrausers-director"
+extrausers_sbindir: "/usr/sbin"
+
+# Sync timer settings
+extrausers_sync_on_boot_sec: "2min"
+extrausers_sync_interval: "8h"
+
+# libnss-extrausers (built from source on all platforms)
+nss_extrausers_repo_url: "https://github.com/arkanelinux/libnss-extrausers.git"
+nss_extrausers_repo_version: "main"
+nss_extrausers_build_dir: /opt/libnss-extrausers
+
+# Director config defaults
+extrausers_sa_key_path: "/etc/google/sa.json"
+extrausers_impersonate: "admin@example.org"
+extrausers_customer: "my_customer"
+extrausers_domain: ""
+extrausers_group_start_gid: 30000
+extrausers_group_end_gid: 39999
+extrausers_default_shell: "/bin/bash"
+extrausers_home_template: "/home/{username}"
+extrausers_rps: 5
+extrausers_max_retries: 5
+extrausers_verbose: false
+extrausers_outdir: "/var/lib/extrausers"
+extrausers_db: "/var/lib/extrausers-director/idcache/google.db"
+extrausers_publish_dir: "/srv/idcache"
+extrausers_idcache_user: "idcache"

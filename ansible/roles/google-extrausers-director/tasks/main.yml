@@ -1,0 +1,237 @@
+# ── Derived facts ────────────────────────────────────────────────────
+
+- name: Set nss_extrausers_libdir for RedHat/Rocky
+  set_fact:
+    nss_extrausers_libdir: /usr/lib64
+  when: ansible_os_family == "RedHat"
+
+- name: Set nss_extrausers_libdir for Debian/Ubuntu
+  set_fact:
+    nss_extrausers_libdir: "/usr/lib/{{ ansible_architecture }}-linux-gnu"
+  when: ansible_os_family == "Debian"
+
+# ── OS packages ──────────────────────────────────────────────────────
+
+- name: Install packages (Debian/Ubuntu)
+  apt:
+    name:
+      - python3
+      - python3-pip
+      - python3-googleapi
+      - python3-google-auth
+      - python3-google-auth-httplib2
+      - python3-google-auth-oauthlib
+      - git
+      - acl
+      - rsync
+      - gcc
+      - make
+      - autoconf
+      - automake
+      - libtool
+      - libc6-dev
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Debian"
+
+- name: Install packages (RedHat/Rocky)
+  yum:
+    name:
+      - python3
+      - python3-pip
+      - git
+      - acl
+      - rsync
+      - gcc
+      - make
+      - autoconf
+      - automake
+      - libtool
+      - glibc-devel
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Install Python libraries via pip (RedHat/Rocky)
+  pip:
+    name:
+      - google-api-python-client
+      - google-auth
+      - google-auth-httplib2
+      - google-auth-oauthlib
+    executable: pip3
+  when: ansible_os_family == "RedHat"
+
+# ── nss_extrausers from source ──────────────────────────────────────
+
+- name: Clone libnss-extrausers
+  git:
+    repo: "{{ nss_extrausers_repo_url }}"
+    dest: "{{ nss_extrausers_build_dir }}"
+    version: "{{ nss_extrausers_repo_version }}"
+    update: true
+
+- name: Patch s_config.h to use /var/lib/extrausers paths
+  replace:
+    path: "{{ nss_extrausers_build_dir }}/src/s_config.h"
+    regexp: '#define\s+{{ item.name }}\s+"[^"]+"'
+    replace: '#define {{ item.name }} "/var/lib/extrausers/{{ item.file }}"'
+  loop:
+    - { name: USERSFILE, file: passwd }
+    - { name: SHADOWFILE, file: shadow }
+    - { name: GROUPSFILE, file: group }
+
+- name: Build libnss-extrausers
+  shell: |
+    make clean && make
+  args:
+    chdir: "{{ nss_extrausers_build_dir }}/src"
+
+- name: Install libnss-extrausers
+  command: make install
+  args:
+    chdir: "{{ nss_extrausers_build_dir }}/src"
+    creates: "{{ nss_extrausers_libdir }}/libnss_extrausers.so.2"
+  environment:
+    DESTDIR: "{{ nss_extrausers_libdir }}"
+
+- name: Run ldconfig
+  command: ldconfig
+
+- name: Ensure /var/lib/extrausers directory exists
+  file:
+    path: /var/lib/extrausers
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Seed extrausers files
+  copy:
+    content: ""
+    dest: "/var/lib/extrausers/{{ item }}"
+    force: false
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - passwd
+    - group
+    - shadow
+
+- name: Configure nsswitch.conf for extrausers
+  lineinfile:
+    path: /etc/nsswitch.conf
+    regexp: '^{{ item }}:'
+    line: '{{ item }}:        files extrausers'
+    state: present
+  loop:
+    - passwd
+    - group
+    - shadow
+
+# ── Director service ────────────────────────────────────────────────
+
+- name: Ensure repo present (clone/update)
+  git:
+    repo: "{{ extrausers_repo_url }}"
+    dest: "{{ extrausers_repo_dir }}"
+    version: "{{ extrausers_repo_version }}"
+    update: true
+    accept_hostkey: true
+  when: extrausers_repo_url is defined
+
+- name: Run make install-scripts (director)
+  command: make install-scripts
+  args:
+    chdir: "{{ extrausers_repo_dir }}/google-extrausers-director"
+  register: make_install
+  changed_when: "'Nothing to be done' not in make_install.stdout"
+
+- name: Install systemd service unit
+  template:
+    src: google-extrausers-director-sync.service.j2
+    dest: /lib/systemd/system/google-extrausers-director-sync.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart director timer
+
+- name: Install systemd timer unit
+  template:
+    src: google-extrausers-director-sync.timer.j2
+    dest: /lib/systemd/system/google-extrausers-director-sync.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart director timer
+
+- name: Ensure publish dir exists
+  file:
+    path: /srv/idcache
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure director config dir exists
+  file:
+    path: /etc/extrausers-director
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Write director config
+  template:
+    src: config.j2
+    dest: /etc/extrausers-director/config
+    owner: root
+    group: root
+    mode: "0640"
+  notify: restart director timer
+
+- name: Write publish.conf
+  template:
+    src: publish.conf.j2
+    dest: /etc/extrausers-director/publish.conf
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart director timer
+
+- name: Ensure service account key path exists
+  file:
+    path: "{{ extrausers_sa_key_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: Install service account key
+  when: extrausers_sa_json is defined
+  copy:
+    content: "{{ extrausers_sa_json }}"
+    dest: "{{ extrausers_sa_key_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Ensure DB directory exists
+  file:
+    path: "/var/lib/extrausers-director/idcache"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Enable director timer
+  systemd:
+    name: google-extrausers-director-sync.timer
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Run initial sync now
+  systemd:
+    name: google-extrausers-director-sync.service
+    state: started

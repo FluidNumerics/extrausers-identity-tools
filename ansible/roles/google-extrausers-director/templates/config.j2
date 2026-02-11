@@ -1,0 +1,27 @@
+# Managed by Ansible — do not edit manually
+SA_KEY={{ extrausers_sa_key_path }}
+IMPERSONATE={{ extrausers_impersonate }}
+
+{% if extrausers_domain %}
+DOMAIN={{ extrausers_domain }}
+{% else %}
+CUSTOMER={{ extrausers_customer }}
+{% endif %}
+
+# Group synchronization
+GROUP_START_GID={{ extrausers_group_start_gid }}
+GROUP_END_GID={{ extrausers_group_end_gid }}
+
+OUTDIR={{ extrausers_outdir }}
+DB={{ extrausers_db }}
+DEFAULT_SHELL={{ extrausers_default_shell }}
+HOME_TEMPLATE={{ extrausers_home_template }}
+RPS={{ extrausers_rps }}
+MAX_RETRIES={{ extrausers_max_retries }}
+{% if extrausers_verbose %}
+VERBOSE=1
+{% endif %}
+
+# Publishing
+PUBLISH_DIR={{ extrausers_publish_dir }}
+IDCACHE_USER={{ extrausers_idcache_user }}

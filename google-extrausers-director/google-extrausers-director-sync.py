@@ -204,18 +204,22 @@ def deactivate_missing_users(conn: sqlite3.Connection, present_ids: List[str]) -
 # -------------------- Helpers --------------------
 def update_groups_db(svc, groups, conn, args):
 
-    # Used gids should consider BOTH user primary gids and any already-allocated group gids
-    used_gids = get_used_gids(conn)
+    # Only user primary GIDs are external constraints; group GIDs are recomputed each run.
+    used_gids = set()
+    for (gid,) in conn.execute("SELECT gid FROM users WHERE active=1").fetchall():
+        used_gids.add(int(gid))
+
+    # Temporarily set all group GIDs to unique negative placeholders so that
+    # the UNIQUE constraint on gid does not conflict during deterministic
+    # reassignment (GIDs may shift when groups are added or removed).
+    conn.execute("UPDATE groups SET gid = -ROWID")
 
     active_group_ids = []
 
-    # Upsert groups, allocate gid if new
-    for g in groups:
-        gid_row = conn.execute("SELECT gid FROM groups WHERE group_id=?", (g["id"],)).fetchone()
-        if gid_row:
-            gid = int(gid_row[0])
-        else:
-            gid = allocate_gid_in_range(conn, args.group_start_gid, args.group_end_gid, used_gids)
+    # Sort groups by their stable Google group ID so that collision resolution
+    # (linear probing) is deterministic across independent service instances.
+    for g in sorted(groups, key=lambda g: g["id"]):
+        gid = deterministic_gid(g["id"], args.group_start_gid, args.group_end_gid, used_gids)
 
         gname = sanitize_groupname(g.get("email",""))
 
@@ -225,6 +229,7 @@ def update_groups_db(svc, groups, conn, args):
           ON CONFLICT(group_id) DO UPDATE SET
             email=excluded.email,
             name=excluded.name,
+            gid=excluded.gid,
             etag=excluded.etag,
             active=1,
             updated_at=excluded.updated_at
@@ -328,32 +333,31 @@ def sanitize_groupname(email: str) -> str:
     name = "".join(c for c in local.lower() if c.isalnum() or c in ("-", "_", "."))
     return name
 
-def get_used_gids(conn: sqlite3.Connection) -> set[int]:
-    used = set()
-    for (gid,) in conn.execute("SELECT gid FROM users WHERE active=1").fetchall():
-        used.add(int(gid))
-    for (gid,) in conn.execute("SELECT gid FROM groups WHERE active=1").fetchall():
-        used.add(int(gid))
-    return used
 
-def allocate_gid_in_range(conn: sqlite3.Connection, start: int, end: int, used: set[int]) -> int:
-    # Optional cursor
-    row = conn.execute("SELECT next_value FROM allocators WHERE key='group_gid'").fetchone()
-    n = int(row[0]) if row else start
-    if n < start: n = start
+def deterministic_gid(group_id: str, start: int, end: int, used: set[int]) -> int:
+    """Compute a deterministic GID from a Google Group ID via SHA-256 hashing.
 
-    while True:
-        if n > end:
-            raise RuntimeError(f"Out of group GIDs in range [{start},{end}]")
-        if n not in used:
-            used.add(n)
-            conn.execute(
-                "INSERT INTO allocators(key,next_value) VALUES('group_gid',?) "
-                "ON CONFLICT(key) DO UPDATE SET next_value=?",
-                (n + 1, n + 1),
-            )
-            return n
-        n += 1
+    Maps the hash of the group_id into [start, end].  On collision with an
+    already-claimed GID (user primary GID or earlier group in sorted order),
+    probes linearly (wrapping) until a free slot is found.
+
+    Because groups are processed in sorted order by group_id and the hash is
+    deterministic, independent instances processing the same set of groups
+    will always arrive at the same GID assignments.
+    """
+    range_size = end - start + 1
+    h = int.from_bytes(
+        hashlib.sha256(group_id.encode("utf-8")).digest()[:8], "big"
+    )
+    base = start + (h % range_size)
+
+    for offset in range(range_size):
+        candidate = start + (base - start + offset) % range_size
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+
+    raise RuntimeError(f"Out of group GIDs in range [{start},{end}]")
 
 def fetch_users(svc, args):
 
