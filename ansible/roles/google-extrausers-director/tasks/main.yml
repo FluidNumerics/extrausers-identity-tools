@@ -1,3 +1,15 @@
+# ── Derived facts ────────────────────────────────────────────────────
+
+- name: Set nss_extrausers_libdir for RedHat/Rocky
+  set_fact:
+    nss_extrausers_libdir: /usr/lib64
+  when: ansible_os_family == "RedHat"
+
+- name: Set nss_extrausers_libdir for Debian/Ubuntu
+  set_fact:
+    nss_extrausers_libdir: "/usr/lib/{{ ansible_architecture }}-linux-gnu"
+  when: ansible_os_family == "Debian"
+
 # ── OS packages ──────────────────────────────────────────────────────
 
 - name: Install packages (Debian/Ubuntu)

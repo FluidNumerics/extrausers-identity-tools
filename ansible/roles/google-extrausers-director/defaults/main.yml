@@ -10,8 +10,6 @@ extrausers_sync_interval: "8h"
 nss_extrausers_repo_url: "https://github.com/arkanelinux/libnss-extrausers.git"
 nss_extrausers_repo_version: "main"
 nss_extrausers_build_dir: /opt/libnss-extrausers
-# Debian/Ubuntu: /usr/lib/x86_64-linux-gnu  Rocky/RHEL: /usr/lib64
-nss_extrausers_libdir: "{{ '/usr/lib64' if ansible_os_family == 'RedHat' else '/usr/lib/' + ansible_architecture + '-linux-gnu' }}"
 
 # Director config defaults
 extrausers_sa_key_path: "/etc/google/sa.json"
