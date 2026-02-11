@@ -1,6 +1,11 @@
 extrausers_http_port: 8082
 
 # Where the repo should live on the node
-extrausers_repo_dir: /opt/extrausers-identity-tools
-extrausers_repo_url: "https://github.com/fluidnumerics/extrausers-identity-tools.git"
+extrausers_repo_dir: /opt/google-extrausers
+extrausers_repo_url: "https://github.com/FluidNumerics/google-extrausers.git"
 extrausers_repo_version: "main"
+
+# libnss-extrausers (built from source on all platforms)
+nss_extrausers_repo_url: "https://github.com/arkanelinux/libnss-extrausers.git"
+nss_extrausers_repo_version: "main"
+nss_extrausers_build_dir: /opt/libnss-extrausers

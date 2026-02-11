@@ -2,10 +2,10 @@
   hosts: directors
   become: true
   roles:
-    - extrausers_director
+    - google-extrausers-director
 
-- name: Install and configure extrausers agents
-  hosts: agents
-  become: true
-  roles:
-    - extrausers_agent
+# - name: Install and configure extrausers agents
+#   hosts: agents
+#   become: true
+#   roles:
+#     - extrausers_agent

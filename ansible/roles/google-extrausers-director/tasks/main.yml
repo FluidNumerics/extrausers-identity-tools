@@ -1,3 +1,115 @@
+# ── OS packages ──────────────────────────────────────────────────────
+
+- name: Install packages (Debian/Ubuntu)
+  apt:
+    name:
+      - python3
+      - python3-pip
+      - python3-googleapi
+      - python3-google-auth
+      - python3-google-auth-httplib2
+      - python3-google-auth-oauthlib
+      - git
+      - acl
+      - rsync
+      - gcc
+      - make
+      - autoconf
+      - automake
+      - libtool
+      - libc6-dev
+    state: present
+    update_cache: true
+  when: ansible_os_family == "Debian"
+
+- name: Install packages (RedHat/Rocky)
+  yum:
+    name:
+      - python3
+      - python3-pip
+      - git
+      - acl
+      - rsync
+      - gcc
+      - make
+      - autoconf
+      - automake
+      - libtool
+      - glibc-devel
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Install Python libraries via pip (RedHat/Rocky)
+  pip:
+    name:
+      - google-api-python-client
+      - google-auth
+      - google-auth-httplib2
+      - google-auth-oauthlib
+    executable: pip3
+  when: ansible_os_family == "RedHat"
+
+# ── nss_extrausers from source ──────────────────────────────────────
+
+- name: Clone libnss-extrausers
+  git:
+    repo: "{{ nss_extrausers_repo_url }}"
+    dest: "{{ nss_extrausers_build_dir }}"
+    version: "{{ nss_extrausers_repo_version }}"
+    update: true
+
+- name: Build libnss-extrausers
+  shell: |
+    autoreconf -fi
+    ./configure --prefix=/usr --libdir={{ nss_extrausers_libdir }}
+    make -j$(nproc)
+  args:
+    chdir: "{{ nss_extrausers_build_dir }}"
+    creates: "{{ nss_extrausers_build_dir }}/libnss_extrausers.so"
+
+- name: Install libnss-extrausers
+  command: make install
+  args:
+    chdir: "{{ nss_extrausers_build_dir }}"
+    creates: "{{ nss_extrausers_libdir }}/libnss_extrausers.so.2"
+
+- name: Run ldconfig
+  command: ldconfig
+
+- name: Ensure /var/lib/extrausers directory exists
+  file:
+    path: /var/lib/extrausers
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Seed extrausers files
+  copy:
+    content: ""
+    dest: "/var/lib/extrausers/{{ item }}"
+    force: false
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - passwd
+    - group
+    - shadow
+
+- name: Configure nsswitch.conf for extrausers
+  lineinfile:
+    path: /etc/nsswitch.conf
+    regexp: '^{{ item }}:'
+    line: '{{ item }}:        files extrausers'
+    state: present
+  loop:
+    - passwd
+    - group
+    - shadow
+
+# ── Director service ────────────────────────────────────────────────
+
 - name: Ensure repo present (clone/update)
   git:
     repo: "{{ extrausers_repo_url }}"
@@ -31,7 +143,7 @@
 
 - name: Write director config
   template:
-    src: director-config.j2
+    src: config.j2
     dest: /etc/extrausers-director/config
     owner: root
     group: root
@@ -64,23 +176,14 @@
     group: root
     mode: "0755"
 
-# If your Makefile already enables timers, you can skip this.
 - name: Enable director timer
   systemd:
-    name: extrausers-director-sync.timer
+    name: google-extrausers-director-sync.timer
     enabled: true
     state: started
     daemon_reload: true
 
 - name: Run initial sync now
   systemd:
-    name: extrausers-director-sync.service
+    name: google-extrausers-director-sync.service
     state: started
-
-handlers:
-  - name: restart director timer
-    systemd:
-      name: extrausers-director-sync.timer
-      state: restarted
-      daemon_reload: true
-

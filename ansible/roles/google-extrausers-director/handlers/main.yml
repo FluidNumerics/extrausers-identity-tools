@@ -1,0 +1,5 @@
+- name: restart director timer
+  systemd:
+    name: google-extrausers-director-sync.timer
+    state: restarted
+    daemon_reload: true
