@@ -70,6 +70,8 @@
   args:
     chdir: "{{ nss_extrausers_build_dir }}/src"
     creates: "{{ nss_extrausers_libdir }}/libnss_extrausers.so.2"
+  environment:
+    DESTDIR: "{{ nss_extrausers_libdir }}"
 
 - name: Run ldconfig
   command: ldconfig
@@ -175,6 +177,14 @@
     group: root
     mode: "0644"
   notify: restart director timer
+
+- name: Ensure service account key path exists
+  file:
+    path: "{{ extrausers_sa_key_path | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0750"
 
 - name: Install service account key
   when: extrausers_sa_json is defined

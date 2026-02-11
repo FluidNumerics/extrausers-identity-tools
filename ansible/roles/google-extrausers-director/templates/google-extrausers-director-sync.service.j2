@@ -28,8 +28,8 @@ ExecStart=/usr/bin/env bash -lc '\
     --max-retries "${MAX_RETRIES:-5}" \
     ${VERBOSE:+--verbose} \
 '
-# After a successful sync, publish the tarball + sha256 for agents
-ExecStartPost={{ extrausers_sbindir }}/google-extrausers-director-publish
+# After a successful sync, publish the tarball + sha256 for agents; disabled for now
+#ExecStartPost={{ extrausers_sbindir }}/google-extrausers-director-publish
 
 User=root
 Group=root
