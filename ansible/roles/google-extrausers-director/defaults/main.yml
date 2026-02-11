@@ -1,6 +1,10 @@
-# Director Makefile targets
-extrausers_make_target_install: install
-extrausers_make_target_enable: enable
+# Director install paths
+extrausers_confdir: "/etc/extrausers-director"
+extrausers_sbindir: "/usr/sbin"
+
+# Sync timer settings
+extrausers_sync_on_boot_sec: "2min"
+extrausers_sync_interval: "8h"
 
 # libnss-extrausers (built from source on all platforms)
 nss_extrausers_repo_url: "https://github.com/arkanelinux/libnss-extrausers.git"

@@ -117,12 +117,30 @@
     accept_hostkey: true
   when: extrausers_repo_url is defined
 
-- name: Run make install (director)
-  command: make {{ extrausers_make_target_install }}
+- name: Run make install-scripts (director)
+  command: make install-scripts
   args:
     chdir: "{{ extrausers_repo_dir }}/google-extrausers-director"
   register: make_install
   changed_when: "'Nothing to be done' not in make_install.stdout"
+
+- name: Install systemd service unit
+  template:
+    src: google-extrausers-director-sync.service.j2
+    dest: /lib/systemd/system/google-extrausers-director-sync.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart director timer
+
+- name: Install systemd timer unit
+  template:
+    src: google-extrausers-director-sync.timer.j2
+    dest: /lib/systemd/system/google-extrausers-director-sync.timer
+    owner: root
+    group: root
+    mode: "0644"
+  notify: restart director timer
 
 - name: Ensure publish dir exists
   file:

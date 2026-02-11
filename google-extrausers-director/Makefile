@@ -40,7 +40,7 @@ INST_CONFIG   := $(CONFDIR)/config
 INST_SERVICE  := $(SYSTEMDUNITDIR)/google-extrausers-director-sync.service
 INST_TIMER    := $(SYSTEMDUNITDIR)/google-extrausers-director-sync.timer
 
-.PHONY: all install uninstall enable disable reload status check
+.PHONY: all install install-scripts uninstall enable disable reload status check check-scripts
 
 all:
 	@echo "Targets: install uninstall enable disable reload status"
@@ -51,6 +51,24 @@ check:
 	@test -f "$(CONFIG_FILE)" || (echo "Missing $(CONFIG_FILE)" && exit 1)
 	@test -f "$(SERVICE_UNIT)" || (echo "Missing $(SERVICE_UNIT)" && exit 1)
 	@test -f "$(TIMER_UNIT)" || (echo "Missing $(TIMER_UNIT)" && exit 1)
+
+check-scripts:
+	@test -f "$(SYNC_SCRIPT)" || (echo "Missing $(SYNC_SCRIPT)" && exit 1)
+	@test -f "$(PUBLISH_SCRIPT)" || (echo "Missing $(PUBLISH_SCRIPT)" && exit 1)
+	@test -f "$(CONFIG_FILE)" || (echo "Missing $(CONFIG_FILE)" && exit 1)
+
+install-scripts: check-scripts
+
+	# Create directories
+	install -d "$(DESTDIR)$(SBINDIR)"
+	install -d "$(DESTDIR)$(CONFDIR)"
+
+	# Install scripts
+	install -m 0755 "$(SYNC_SCRIPT)"    "$(DESTDIR)$(INST_SYNC)"
+	install -m 0755 "$(PUBLISH_SCRIPT)" "$(DESTDIR)$(INST_PUBLISH)"
+
+	# Install config (template)
+	install -m 0640 "$(CONFIG_FILE)"    "$(DESTDIR)$(INST_CONFIG)"
 
 install: check
 
