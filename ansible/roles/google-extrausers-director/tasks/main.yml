@@ -70,12 +70,21 @@
     version: "{{ nss_extrausers_repo_version }}"
     update: true
 
+- name: Patch s_config.h to use /var/lib/extrausers paths
+  replace:
+    path: "{{ nss_extrausers_build_dir }}/src/s_config.h"
+    regexp: '#define\s+{{ item.name }}\s+"[^"]+"'
+    replace: '#define {{ item.name }} "/var/lib/extrausers/{{ item.file }}"'
+  loop:
+    - { name: USERSFILE, file: passwd }
+    - { name: SHADOWFILE, file: shadow }
+    - { name: GROUPSFILE, file: group }
+
 - name: Build libnss-extrausers
   shell: |
-    make
+    make clean && make
   args:
     chdir: "{{ nss_extrausers_build_dir }}/src"
-    creates: "{{ nss_extrausers_build_dir }}/libnss_extrausers.so"
 
 - name: Install libnss-extrausers
   command: make install
