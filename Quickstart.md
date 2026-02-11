@@ -12,8 +12,15 @@ The `google-extrausers-director` service uses Google's Admin SDK to pull user in
 ### 1) Install dependencies (Debian/Ubuntu):
 ```
 sudo apt-get update
-sudo apt-get install -y python3 python3-googleapi python3-google-auth python3-google-auth-httplib2 python3-google-auth-oauthlib libnss-extrausers
+sudo apt-get install -y python3 python3-googleapi python3-google-auth python3-google-auth-httplib2 python3-google-auth-oauthlib libnss-extrausers rsync
 ```
+
+If you plan to serve the extrausers bundle via nginx,
+```
+sudo apt-get install nginx
+```
+
+
 
 ### 2) Install the package:
 ```
@@ -59,3 +66,6 @@ passwd: files extrausers
 group: files extrausers
 shadow: files extrausers
 ```
+
+## extrausers-agent
+The `extrausers-agent` service is used to copy the `/srv/idcache/extrausers.tgz` artifact from 

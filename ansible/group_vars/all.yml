@@ -1,3 +1,5 @@
+extrausers_http_port: 8082
+
 # Where the repo should live on the node
 extrausers_repo_dir: /opt/extrausers-identity-tools
 extrausers_repo_url: "https://github.com/fluidnumerics/extrausers-identity-tools.git"

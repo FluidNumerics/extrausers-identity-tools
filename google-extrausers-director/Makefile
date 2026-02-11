@@ -22,10 +22,9 @@ SHELL := /bin/bash
 PREFIX      ?= /usr
 SYSCONFDIR   ?= /etc
 SYSTEMDUNITDIR ?= /lib/systemd/system
-IDCACHE_USER ?= idcache
 
 SBINDIR     := $(PREFIX)/sbin
-CONFDIR     := $(SYSCONFDIR)/google-extrausers-director
+CONFDIR     := $(SYSCONFDIR)/extrausers-director
 
 # Payload files expected in the project root
 SYNC_SCRIPT   := google-extrausers-director-sync.py
@@ -41,9 +40,6 @@ INST_CONFIG   := $(CONFDIR)/config
 INST_SERVICE  := $(SYSTEMDUNITDIR)/google-extrausers-director-sync.service
 INST_TIMER    := $(SYSTEMDUNITDIR)/google-extrausers-director-sync.timer
 
-# runtime dirs
-IDCACHE_DIR   := /srv/idcache
-
 .PHONY: all install uninstall enable disable reload status check
 
 all:
@@ -56,33 +52,12 @@ check:
 	@test -f "$(SERVICE_UNIT)" || (echo "Missing $(SERVICE_UNIT)" && exit 1)
 	@test -f "$(TIMER_UNIT)" || (echo "Missing $(TIMER_UNIT)" && exit 1)
 
-update: check 
-	# Create idcache user
-	mkdir -p $(IDCACHE_DIR)
-	chown -R root:$(IDCACHE_USER) $(IDCACHE_DIR)
-	chmod 0750 $(IDCACHE_DIR)
-
-	# Install scripts
-	install -m 0755 "$(SYNC_SCRIPT)"    "$(DESTDIR)$(INST_SYNC)"
-	install -m 0755 "$(PUBLISH_SCRIPT)" "$(DESTDIR)$(INST_PUBLISH)"
-
-	# Install systemd units
-	# Note: build.sh installs google-extrausers-director.service as google-extrausers-director-sync.service
-	install -m 0644 "$(SERVICE_UNIT)"   "$(DESTDIR)$(INST_SERVICE)"
-	install -m 0644 "$(TIMER_UNIT)"     "$(DESTDIR)$(INST_TIMER)"
-
 install: check
-	# Create idcache user
-	useradd --system --home $(IDCACHE_DIR) --shell /usr/sbin/nologin idcache
-	mkdir -p $(IDCACHE_DIR)
-	chown -R root:idcache $(IDCACHE_DIR)
-	chmod 0750 $(IDCACHE_DIR)
 
 	# Create directories
 	install -d "$(DESTDIR)$(SBINDIR)"
 	install -d "$(DESTDIR)$(CONFDIR)"
 	install -d "$(DESTDIR)$(SYSTEMDUNITDIR)"
-	install -d "$(DESTDIR)$(IDCACHE_DIR)"
 
 	# Install scripts
 	install -m 0755 "$(SYNC_SCRIPT)"    "$(DESTDIR)$(INST_SYNC)"
