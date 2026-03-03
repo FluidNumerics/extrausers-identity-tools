@@ -51,6 +51,14 @@
     state: present
   when: ansible_os_family == "RedHat"
 
+- name: Upgrade pyopenssl via pip (Debian/Ubuntu)
+  pip:
+    name:
+      - pyopenssl
+    executable: pip3
+    state: latest
+  when: ansible_os_family == "Debian"
+
 - name: Install Python libraries via pip (RedHat/Rocky)
   pip:
     name:
