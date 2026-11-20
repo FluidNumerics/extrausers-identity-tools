@@ -119,6 +119,27 @@ CREATE TABLE IF NOT EXISTS allocators (
 """
 
 
+# Columns added to a table after its first release. CREATE TABLE IF NOT EXISTS
+# leaves an existing table as it is, so a cache written by an older version
+# lacks these until db_connect adds them.
+ADDED_COLUMNS = {
+    "users": [("email", "TEXT")],
+}
+
+# The users columns in the order user_row_changed unpacks them.
+USER_COLUMNS = "id, email, username, uid, gid, gecos, home, shell, etag, active, updated_at"
+
+
+def migrate(conn: sqlite3.Connection):
+    """Add any column in ADDED_COLUMNS that an existing table lacks."""
+    for table, columns in ADDED_COLUMNS.items():
+        present = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for name, sqltype in columns:
+            if name not in present:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {sqltype}")
+    conn.commit()
+
+
 def db_connect(db_path: str) -> sqlite3.Connection:
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
     conn = sqlite3.connect(db_path)
@@ -127,6 +148,7 @@ def db_connect(db_path: str) -> sqlite3.Connection:
         s = stmt.strip()
         if s:
             conn.execute(s)
+    migrate(conn)
     return conn
 
 
@@ -468,7 +490,9 @@ def update_users_db(users, conn, args):
         }
 
         # Compare with DB, upsert if changed
-        cur = conn.execute("SELECT * FROM users WHERE id=?", (u["id"],))
+        # Name the columns: ALTER TABLE appends, so SELECT * on a migrated
+        # cache returns them in a different order from USER_COLUMNS.
+        cur = conn.execute(f"SELECT {USER_COLUMNS} FROM users WHERE id=?", (u["id"],))
         row = cur.fetchone()
         if user_row_changed(row, record):
             upsert_user(conn, record)
